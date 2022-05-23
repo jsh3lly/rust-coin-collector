@@ -1,1 +1,6 @@
-/target
+target/
+debug/
+Cargo.lock
+
+.idea/
+
