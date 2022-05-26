@@ -252,10 +252,12 @@ fn spawn_playspace_entities(mut commands: Commands, asset_server: Res<AssetServe
                     .insert(GravityScale(0.))
                     .insert(Ccd::enabled())
                     .insert(Velocity::zero())
+                    .with_children(|cuboid_hitbox| {
+                    cuboid_hitbox.spawn()
+                        .insert(Collider::cuboid(SPRITE_SIZE / 2.75, SPRITE_SIZE / 2.15))
+                        .insert(Transform::from_xyz(0., -5., 0.));
+                });
                     // .insert(CollisionShape::Cuboid {half_extends: Vec3::new(SPRITE_SIZE / 2., SPRITE_SIZE / 2., 10.), border_radius: None })
-                    .insert(Collider::cuboid(SPRITE_SIZE / 2.1, SPRITE_SIZE / 2.1))
-                    ;
-                ;
             }
         }
     }
