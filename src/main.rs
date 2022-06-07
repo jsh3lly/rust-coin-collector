@@ -18,9 +18,9 @@ use rand::prelude::SliceRandom;
 
 
 // Some important initial config
-static WINDOW_WIDTH: f32 = 800 as f32;
+static WINDOW_WIDTH: f32 = 1000 as f32;
 static WINDOW_HEIGHT: f32 = 600 as f32;
-static SPRITE_SIZE: f32 = 100.0;  // SIZE MUST ALWAYS BE A FACTOR OF WINDOW_WIDTH AND WINDOW_HEIGHT!!
+static SPRITE_SIZE: f32 = 50.0;  // SIZE MUST ALWAYS BE A FACTOR OF WINDOW_WIDTH AND WINDOW_HEIGHT!!
 static PLAYSPACE_WIDTH: isize = WINDOW_WIDTH as isize / SPRITE_SIZE as isize;
 static PLAYSPACE_HEIGHT: isize = WINDOW_HEIGHT as isize / SPRITE_SIZE as isize;
 static MOVESPEED: f32 = 500.;
@@ -38,7 +38,7 @@ fn main() {
             ..default()})
         .add_plugins(DefaultPlugins)
         .add_plugin(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(100.0))
-        .add_plugin(RapierDebugRenderPlugin::default())
+        // .add_plugin(RapierDebugRenderPlugin::default())
            // Adding heron plugin
         // .add_startup_system()
         .init_resource::<GameState>()
@@ -57,15 +57,51 @@ struct GameState {
 }
 
 #[derive(Clone)]
-struct PlayspaceMatrix(Vec<Vec<GameObject>>);
+struct PlayspaceMatrix(Vec<Vec<GameObject<'static>>>); //TODO Instead of GameObject, do &GameObject???
 
 impl PlayspaceMatrix {
     fn instantiate_gameobject_at_coord (&mut self, coord : (usize, usize), gameobj_type: GameObjType) {
         match gameobj_type {
-            GameObjType::Wall => {self.0[coord.0][coord.1] = GameObject {gameobj_type: GameObjType::Wall, playspace_position: coord, symbol: "W".to_string()}}
-            GameObjType::Player => {self.0[coord.0][coord.1] = GameObject {gameobj_type: GameObjType::Player, playspace_position: coord, symbol: "P".to_string()}}
-            Empty => {self.0[coord.0][coord.1] = GameObject {gameobj_type: Empty, playspace_position: coord, symbol: "0".to_string()}}
+            GameObjType::Wall => {self.0[coord.0][coord.1] = GameObject {gameobj_type: GameObjType::Wall, playspace_position: coord, symbol: "W"}}
+            GameObjType::Player => {self.0[coord.0][coord.1] = GameObject {gameobj_type: GameObjType::Player, playspace_position: coord, symbol: "P"}}
+            Empty => {self.0[coord.0][coord.1] = GameObject {gameobj_type: Empty, playspace_position: coord, symbol: "0"}}
         };
+    }
+
+    fn get_gameobj_at_coord(&self, coord : (isize, isize)) ->  Option<&GameObject> {
+        let row = self.0.get(coord.0 as usize);
+        match row {
+            None => return None,
+            Some(row) => row.get(coord.1 as usize),
+        }
+    }
+
+    fn get_neighbours_at_coord(& self, (a,b) :(isize, isize)) {
+        let mut possible_neighbour_coords= vec![(a+1,b), (a,b+1), (a+1,b+1)];
+        if a-1 >= 0 {
+            possible_neighbour_coords.push((a-1,b));
+            possible_neighbour_coords.push((a-1,b+1));
+        }
+
+        if b-1 >= 0 {
+            possible_neighbour_coords.push((a,b-1));
+            possible_neighbour_coords.push((a+1,b-1));
+
+        }
+
+        if a-1 >= 0 && b-1 >= 0 {
+            possible_neighbour_coords.push((a-1,b-1));
+        }
+
+        let mut possible_neighbour_gameobjects : Vec<& GameObject> = vec![];
+        for possible_neighbour_coord in possible_neighbour_coords.iter() {
+            let possibly_gameobj = self.get_gameobj_at_coord(*possible_neighbour_coord);
+            if possibly_gameobj.is_some() { possible_neighbour_gameobjects.push(possibly_gameobj.unwrap()); }
+        }
+
+        for gameobj in possible_neighbour_gameobjects.iter() {
+            println!("{:?}", gameobj.playspace_position);
+        }
     }
 }
 
@@ -81,11 +117,7 @@ impl Default for PlayspaceMatrix {
     }
 }
 
-#[derive(Component)]
-struct Player;
-
-
-// This is where we 'set' the game data!! (we impl Default for all resources)
+// This is where we 'set' the initial game data!! (we impl Default for all resources)
 impl FromWorld for GameState {
     fn from_world(world: &mut World) -> Self {
         let mut game_state = Self {
@@ -93,62 +125,63 @@ impl FromWorld for GameState {
             playspace_matrix: PlayspaceMatrix::default()
         };
 
-        // Walls on the border
+        // ==== Walls on the border ====
         // top and bottom
         let playspace_width_usize = PLAYSPACE_WIDTH as usize;
         let playspace_height_usize = PLAYSPACE_HEIGHT as usize;
         let mut coords_border_wall : Vec<(usize, usize)> = Vec::new();
-        for i in 0..playspace_width_usize as usize {
+        for i in 0..playspace_width_usize {
             coords_border_wall.push((0, i));
             coords_border_wall.push((playspace_height_usize-1, i));
-            // game_state.playspace_matrix.0[0][i] = "W".to_string();
-            // game_state.playspace_matrix.0[playspace_height_usize -1][i] = "W".to_string();
         }
         // left and right
-        for i in 1..playspace_height_usize as usize{
+        for i in 1..playspace_height_usize {
             coords_border_wall.push((i, 0));
             coords_border_wall.push((i, playspace_width_usize-1));
-            // game_state.playspace_matrix.0[i][0] = "W".to_string();
-            // game_state.playspace_matrix.0[i][playspace_width_usize -1] = "W".to_string();
         }
 
-        for current_cord in coords_border_wall.clone() {
-            // game_state.playspace_matrix.0[current_cord.0][current_cord.1] = "W".to_string()
-            game_state.playspace_matrix.instantiate_gameobject_at_coord((current_cord.0, current_cord.1), GameObjType::Wall);
+        // actually instantiating those walls
+        for (a,b) in coords_border_wall.iter() {
+            game_state.playspace_matrix.instantiate_gameobject_at_coord((*a, *b), GameObjType::Wall);
         }
-        // Player inside
+        // ==== Player inside ====
         let mut rng = rand::thread_rng();
-        let player_x = rng.gen_range(1..PLAYSPACE_WIDTH-1) as usize;    // PLAYSPACE_WIDTH-1 because i dont want the player to spawn on a wall
-        let player_y = rng.gen_range(1..PLAYSPACE_HEIGHT-1) as usize;
-        // game_state.playspace_matrix.0[player_y][player_x] = "P".to_string();
-        game_state.playspace_matrix.instantiate_gameobject_at_coord((player_y, player_x), GameObjType::Player);
+        game_state.player_spawn_pos = (rng.gen_range(1..playspace_height_usize-1), rng.gen_range(1..playspace_width_usize-1));
+        game_state.playspace_matrix.instantiate_gameobject_at_coord(game_state.player_spawn_pos,
+                                                                    GameObjType::Player);
 
 
         // Procedurally randomly generated inner walls
-        // let root_coords_for_generation = coords_border_wall.clone();
-        // let random_border_wall_coord = root_coords_for_generation.choose(&mut rand::thread_rng()).unwrap();
+        let root_coords_for_generation = coords_border_wall.clone();
+        let random_border_wall_coord = root_coords_for_generation.choose(&mut rand::thread_rng()).unwrap(); // These coords would be of a wall
         // game_state.playspace_matrix.0[random_border_wall_coord.0][random_border_wall_coord.1] = "0".to_string();
+        game_state.playspace_matrix.instantiate_gameobject_at_coord(*random_border_wall_coord, GameObjType::Empty);
 
+        // game_state.playspace_matrix.get_gameobj_at_coord(*random_border_wall_coord);
+        game_state.playspace_matrix.get_neighbours_at_coord((game_state.player_spawn_pos.0 as isize, game_state.player_spawn_pos.0 as isize));
         game_state
     }
 }
 
-// impl PlayspaceMatrix {
-//     fn instantiate_gameobject(mut self, coords: (x, y)) {
+#[derive(Component)]
+struct Player;
+
+#[derive(Clone)]
+struct GameObject<'a> {
+    gameobj_type: GameObjType,
+    playspace_position: (usize, usize),
+    symbol: &'a str,
+}
 //
+// impl GameObject {
+//     fn generate_neighbour(&self) {
+//         let mut possible
 //     }
 // }
 
-#[derive(Clone)]
-struct GameObject {
-    gameobj_type: GameObjType,
-    playspace_position: (usize, usize),
-    symbol: String,
-}
-
-impl Default for GameObject {
+impl Default for GameObject<'_> {
     fn default() -> Self {
-        Self {gameobj_type: GameObjType::Empty, playspace_position: (0,0), symbol: "X".to_string()}
+        Self {gameobj_type: GameObjType::Empty, playspace_position: (0,0), symbol: "X"}
     }
 }
 
@@ -158,7 +191,6 @@ enum GameObjType {
     Player,
     Empty,
 }
-
 
 
 impl GameState {
@@ -230,14 +262,11 @@ fn spawn_playspace_entities(mut commands: Commands, asset_server: Res<AssetServe
         for j in 0..playspace_matrix[0].len() {
             let coords = playspace_coords_to_world_coords((j as isize, i as isize));
             if playspace_matrix[i][j].gameobj_type == GameObjType::Wall {
-                // println!("{} {}", i, j);
-                // println!("{:?}", coords);
                 commands.spawn().insert_bundle(SpriteBundle {
                 sprite: Sprite {custom_size: Option::Some(vec2(SPRITE_SIZE as f32, SPRITE_SIZE as f32)), ..default()},
                 texture: asset_server.load("wall.png"), transform: Transform::from_xyz(coords.0, coords.1, 0.0), ..default()
                 })
                 .insert(RigidBody::Fixed)
-                // .insert(CollisionShape::Cuboid {half_extends: Vec3::new(SPRITE_SIZE / 2., SPRITE_SIZE / 2., 10.), border_radius: None })
                 .insert(Collider::cuboid(SPRITE_SIZE / 2.0, SPRITE_SIZE / 2.0))
                 ;
             }
@@ -257,29 +286,15 @@ fn spawn_playspace_entities(mut commands: Commands, asset_server: Res<AssetServe
                         .insert(Collider::cuboid(SPRITE_SIZE / 2.75, SPRITE_SIZE / 2.15))
                         .insert(Transform::from_xyz(0., -5., 0.));
                 });
-                    // .insert(CollisionShape::Cuboid {half_extends: Vec3::new(SPRITE_SIZE / 2., SPRITE_SIZE / 2., 10.), border_radius: None })
             }
         }
     }
-    // commands.spawn().insert_bundle(SpriteBundle {
-    //     // sprite: Sprite {custom_size: Option::Some(Vec2::from(get_sprite_size("assets/wall.png"))), ..default()},
-    //     sprite: Sprite {custom_size: Option::Some(Vec2::from((SPRITE_SIZE, SPRITE_SIZE))), ..default()},
-    //     texture: asset_server.load("wall.png"), transform: Transform::from_xyz((-WINDOW_WIDTH + SPRITE_SIZE)/2.0, (WINDOW_HEIGHT - SPRITE_SIZE)/2.0, 0.0), ..default()
-    //
-    // });
-
 }
 
 fn playspace_coords_to_world_coords(playspace_coords: (isize, isize)) -> (f32, f32, f32) {
-    // ((playspace_coords.0 as f32 * SPRITE_SIZE - WINDOW_WIDTH as f32) / 2.0,
-    //  (playspace_coords.1 as f32 * SPRITE_SIZE - WINDOW_HEIGHT as f32) / 2.0,1
-    //  0.0)
-
-    let coords = ((-WINDOW_WIDTH + SPRITE_SIZE)/2.0 + playspace_coords.0 as f32* SPRITE_SIZE,
-                      (WINDOW_HEIGHT - SPRITE_SIZE)/2.0 - playspace_coords.1 as f32 * SPRITE_SIZE,
-                      0.0 as f32);
-
-    coords
+    ((-WINDOW_WIDTH + SPRITE_SIZE)/2.0 + playspace_coords.0 as f32* SPRITE_SIZE,
+    (WINDOW_HEIGHT - SPRITE_SIZE)/2.0 - playspace_coords.1 as f32 * SPRITE_SIZE,
+    0.0 as f32)
 }
 
 
